@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sentinel Dispatch - Prototype</title>
+<style>
+:root{--paper:#e8edf0;--panel:#f7f9fa;--ink:#14232f;--mut:#5d6f7c;--line:#cbd5db;--red:#d92d27;--blu:#1d5fd1;--amb:#e59a00;--grn:#178a57;--road:#fbfcfd}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:baseline;padding:14px 20px;background:var(--ink);color:#fff}
+h1{margin:0;font-size:18px;font-weight:700;letter-spacing:.01em}
+header span{color:#9fb3c2;font-size:13px}
+main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(300px,1fr);gap:14px;padding:14px;max-width:1300px;margin:auto}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}
+h2{margin:0 0 8px;font-size:14px;font-weight:700}
+svg{display:block;width:100%;height:auto;border-radius:6px;background:#dde5ea}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select{font:inherit;padding:7px 12px;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--ink)}
+button:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--blu);outline-offset:2px}
+button.p{background:var(--ink);color:#fff;border-color:var(--ink)}
+button.r{background:var(--red);color:#fff;border-color:var(--red)}
+button.g{background:var(--grn);color:#fff;border-color:var(--grn)}
+.mut{color:var(--mut);font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stats div{background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px}
+.stats b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.tabs button{padding:4px 10px}
+.tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.phone{width:100%;max-width:290px;margin:8px auto 0;border:6px solid var(--ink);border-radius:26px;background:#fff;min-height:290px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.phone .top{font-size:12px;color:var(--mut)}
+.alert{background:var(--red);color:#fff;border-radius:8px;padding:10px}
+.alert.v{background:var(--amb)}
+.alert b{font-size:16px}
+.phone .row button{flex:1}
+.nav{display:block;text-align:center;padding:9px;border-radius:6px;background:var(--blu);color:#fff;text-decoration:none;font-weight:600}
+.inc{border-top:1px solid var(--line);padding:8px 0;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between}
+.inc:first-of-type{border-top:0}
+.tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:12px;font-weight:700;color:#fff}
+.log{max-height:170px;overflow:auto;font-size:13px}
+.log p{margin:0;padding:2px 0;border-top:1px solid var(--line)}
+.log time{color:var(--mut);font-variant-numeric:tabular-nums;margin-right:6px}
+@keyframes ring{0%{r:8;opacity:.9}100%{r:34;opacity:0}}
+.ring{fill:none;stroke:var(--red);stroke-width:3;animation:ring 1.3s ease-out infinite}
+@media(prefers-reduced-motion:reduce){.ring{animation:none;r:22;opacity:.6}}
+</style>
+</head>
+<body>
+<header><h1>Sentinel Dispatch</h1><span>Prototype: simulated suburb, no real alarm data</span></header>
+<main>
+<div class="col">
+  <div class="box"><h2>Control room: Model Park (demo suburb)</h2><svg id="map" viewBox="0 0 600 440" role="img" aria-label="Suburb map with houses and guard vehicles"></svg></div>
+  <div class="box">
+    <h2>Alarm simulator</h2>
+    <div class="row">
+      <select id="hsel" aria-label="House"></select>
+      <button class="r" data-t="PANIC">Panic</button>
+      <button data-t="BURGLAR">Burglar zone</button>
+      <button data-t="TAMPER">Tamper</button>
+    </div>
+    <p class="row mut" style="margin:10px 0 0"><label><input type="checkbox" id="auto" checked> Rule: auto-dispatch panic alarms (other alarms wait for the operator)</label></p>
+    <p class="mut" style="margin:6px 0 0">Tip: you are viewing the phone of one guard. Ignore an alert for 15 seconds to watch it escalate to the next nearest guard.</p>
+  </div>
+  <div class="box"><h2>Response times (average)</h2><div class="stats" id="stats"></div></div>
+</div>
+<div class="col">
+  <div class="box"><h2>Guard phone</h2><div class="row tabs" id="tabs"></div><div class="phone" id="phone"></div></div>
+  <div class="box"><h2>Incidents</h2><div id="incs"><span class="mut">No alarms yet. Trigger one from the simulator.</span></div></div>
+  <div class="box"><h2>Audit log</h2><div class="log" id="log"></div></div>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
+const X=c=>60+c*120,Y=r=>55+r*110,SPEED=140,OFFER=15;
+const COL={PANIC:'#d92d27',BURGLAR:'#e59a00',TAMPER:'#7a4fd0'};
+const houses=[[0,0,'Van der Merwe','12 Acacia Rd'],[2,0,'Naidoo','7 Protea Ave'],[4,1,'Khumalo','31 Jacaranda St'],[1,1,'Botha','4 Marula Cl'],[0,3,'Dlamini','19 Aloe Cres'],[2,2,'Pretorius','23 Fig Ln'],[4,3,'Mokoena','2 Baobab Dr'],[2,3,'Smith','15 Kiaat Way']]
+ .map((h,i)=>({id:i,c:h[0],r:h[1],name:h[2],addr:h[3],x:X(h[0]),y:Y(h[1]),lat:-25.87-h[1]*.001,lng:29.23+h[0]*.0012}));
+const guards=[[1,2,'Sipho'],[3,0,'Thandi'],[3,3,'Johan']].map((g,i)=>({id:i,name:g[2],x:X(g[0]),y:Y(g[1]),status:'available',path:[],inc:null}));
+let incs=[],logs=[],nid=1,view=0,last=performance.now();
+const now=()=>performance.now()/1000,fmt=s=>s==null?'-':s.toFixed(1)+'s';
+const blocks=(g,h)=>Math.round(Math.abs(g.x-h.x)/120+Math.abs(g.y-h.y)/110);
+function log(m){logs.unshift({t:new Date().toLocaleTimeString('en-ZA'),m});logs.length=Math.min(logs.length,40)}
+function el(n,a,p){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);(p||$('map')).appendChild(e);return e}
+
+/* Map (static) */
+for(let c=0;c<5;c++)el('line',{x1:X(c),y1:20,x2:X(c),y2:420,stroke:'#fbfcfd','stroke-width':16});
+for(let r=0;r<4;r++)el('line',{x1:20,y1:Y(r),x2:580,y2:Y(r),stroke:'#fbfcfd','stroke-width':16});
+houses.forEach(h=>{const g=el('g',{id:'h'+h.id});el('rect',{x:h.x+8,y:h.y-22,width:16,height:14,rx:2,fill:'#14232f',id:'hr'+h.id},g);el('text',{x:h.x+28,y:h.y-11,'font-size':11,fill:'#14232f'},g).textContent=h.name});
+el('g',{id:'alarms'});
+guards.forEach(g=>{const e=el('g',{id:'g'+g.id});el('circle',{r:11,fill:'#1d5fd1',stroke:'#fff','stroke-width':2,id:'gc'+g.id},e);el('text',{'text-anchor':'middle',y:4,'font-size':11,'font-weight':700,fill:'#fff'},e).textContent=g.name[0]});
+
+/* Dispatch engine */
+function trigger(type,hid){
+  const h=houses[hid==null?+$('hsel').value:hid];
+  const i={id:nid++,h,type,t0:now(),status:'verify',declined:[],guard:null};
+  incs.unshift(i);log(`ALARM ${type} at ${h.name}, ${h.addr}`);
+  if(type==='PANIC'&&$('auto').checked){log('Rule matched: panic alarm auto-dispatched');dispatch(i)}
+  render();
+}
+function dispatch(i){
+  const c=guards.filter(g=>g.status==='available'&&!i.declined.includes(g.id)).sort((a,b)=>blocks(a,i.h)-blocks(b,i.h));
+  if(!c.length){i.status='unassigned';log(`No guard available for #${i.id}. Operator alerted`);render();return}
+  const g=c[0];g.status='offered';g.inc=i;g.offerEnd=now()+OFFER;g.autoAt=now()+2+Math.random()*2;
+  i.status='offered';i.guard=g;i.tDisp=i.tDisp||now();
+  log(`Alert pushed to ${g.name} (nearest, ${blocks(g,i.h)} blocks away)`);render();
+}
+function accept(g){const i=g.inc;g.status='enroute';i.status='enroute';i.tAcc=now();
+  g.path=[{x:i.h.x,y:g.y},{x:i.h.x,y:i.h.y}].filter(p=>true);log(`${g.name} accepted #${i.id}, en route`);render()}
+function decline(g,timeout){const i=g.inc;i.declined.push(g.id);g.status='available';g.inc=null;i.guard=null;
+  log(timeout?`${g.name} did not respond in ${OFFER}s. Escalating`:`${g.name} declined #${i.id}`);dispatch(i)}
+function arrive(g){const i=g.inc;g.status='onscene';i.status='onscene';i.tArr=now();g.clearAt=now()+3;log(`Geofence: ${g.name} arrived at ${i.h.addr}`);render()}
+function clear(g){const i=g.inc;i.status='closed';i.tEnd=now();g.status='available';g.inc=null;log(`${g.name} closed #${i.id}: all clear`);render()}
+function falseAlarm(i){i.status='closed';log(`Operator closed #${i.id} as false alarm`);render()}
+
+/* Render */
+function render(){
+  $('hsel').innerHTML||(houses.forEach(h=>$('hsel').add(new Option(`${h.name}, ${h.addr}`,h.id))));
+  $('tabs').innerHTML=guards.map(g=>`<button class="${g.id===view?'on':''}" data-v="${g.id}">${g.name}</button>`).join('');
+  const act=incs.filter(i=>i.status!=='closed');
+  $('alarms').innerHTML='';houses.forEach(h=>$('hr'+h.id).setAttribute('fill','#14232f'));
+  act.forEach(i=>{$('hr'+i.h.id).setAttribute('fill',COL[i.type]);const c=el('circle',{cx:i.h.x+16,cy:i.h.y-15,r:20,class:'ring'},$('alarms'));c.style.stroke=COL[i.type]});
+  guards.forEach(g=>$('gc'+g.id).setAttribute('fill',{available:'#1d5fd1',offered:'#e59a00',enroute:'#178a57',onscene:'#14232f'}[g.status]));
+  const g=guards[view],i=g.inc;let p='<div class="top">'+g.name+' - '+({available:'On patrol',offered:'Alert waiting',enroute:'En route',onscene:'On scene'})[g.status]+'</div>';
+  if(g.status==='available')p+='<p class="mut">No active alerts. New alarms near you will appear here as a push notification.</p>';
+  if(g.status==='offered')p+=`<div class="alert ${i.type==='PANIC'?'':'v'}"><b>${i.type} ALARM</b><br>${i.h.name}<br>${i.h.addr}<br>${blocks(g,i.h)} blocks away<br><small>Passes to next guard in <span id="cd">${OFFER}</span>s</small></div><div class="row"><button class="g" data-a="acc">Accept</button><button data-a="dec">Decline</button></div>`;
+  if(g.status==='enroute')p+=`<div class="alert" style="background:#178a57"><b>Go to ${i.h.addr}</b><br>${i.h.name}<br><small>Arrival is detected automatically</small></div><a class="nav" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${i.h.lat},${i.h.lng}&travelmode=driving">Navigate in Google Maps</a>`;
+  if(g.status==='onscene')p+=`<div class="alert" style="background:#14232f"><b>Arrived</b><br>${i.h.addr}<br><small>Detected by geofence</small></div><button class="p" data-a="clr">All clear: close incident</button>`;
+  $('phone').innerHTML=p;
+  $('incs').innerHTML=incs.length?incs.slice(0,6).map(i=>`<div class="inc"><span><span class="tag" style="background:${COL[i.type]}">${i.type}</span> #${i.id} ${i.h.name} <span class="mut">${{verify:'awaiting operator',offered:'alert sent to '+(i.guard&&i.guard.name),enroute:(i.guard&&i.guard.name)+' en route',onscene:(i.guard&&i.guard.name)+' on scene',unassigned:'no guard free',closed:'closed'}[i.status]}</span></span><span class="row">${i.status==='verify'||i.status==='unassigned'?`<button class="p" data-d="${i.id}">Dispatch</button>`:''}${i.status==='verify'?`<button data-f="${i.id}">False alarm</button>`:''}</span></div>`).join(''):'<span class="mut">No alarms yet. Trigger one from the simulator.</span>';
+  const d=incs.filter(i=>i.tArr),av=f=>d.length?fmt(d.reduce((s,i)=>s+f(i),0)/d.length):'-';
+  $('stats').innerHTML=`<div><b>${av(i=>i.tDisp-i.t0)}</b><span class="mut">alarm to dispatch</span></div><div><b>${av(i=>i.tAcc-i.tDisp)}</b><span class="mut">dispatch to accept</span></div><div><b>${av(i=>i.tArr-i.tAcc)}</b><span class="mut">accept to arrival</span></div>`;
+  $('log').innerHTML=logs.map(l=>`<p><time>${l.t}</time>${l.m}</p>`).join('');
+}
+
+/* Events */
+document.body.addEventListener('click',e=>{const t=e.target,g=guards[view];
+  if(t.dataset.t)trigger(t.dataset.t);
+  if(t.dataset.v)(view=+t.dataset.v,render());
+  if(t.dataset.a==='acc')accept(g);if(t.dataset.a==='dec')decline(g);if(t.dataset.a==='clr')clear(g);
+  if(t.dataset.d){const i=incs.find(x=>x.id==t.dataset.d);i.declined=[];if(!i.tDisp)log(`Operator dispatched #${i.id} with one click`);dispatch(i)}
+  if(t.dataset.f)falseAlarm(incs.find(x=>x.id==t.dataset.f));
+});
+
+/* Simulation loop */
+function tick(){const t=performance.now(),dt=(t-last)/1000;last=t;const s=now();
+  guards.forEach(g=>{
+    if(g.path.length){let st=SPEED*dt;while(st>0&&g.path.length){const p=g.path[0],dx=p.x-g.x,dy=p.y-g.y,d=Math.hypot(dx,dy);if(d<=st){g.x=p.x;g.y=p.y;st-=d;g.path.shift()}else{g.x+=dx/d*st;g.y+=dy/d*st;st=0}}
+      if(!g.path.length)arrive(g)}
+    $('g'+g.id).setAttribute('transform',`translate(${g.x},${g.y})`);
+    if(g.status==='offered'){if(s>=g.offerEnd)decline(g,true);else if(g.id!==view&&s>=g.autoAt)accept(g);else if(g.id===view&&$('cd'))$('cd').textContent=Math.ceil(g.offerEnd-s)}
+    if(g.status==='onscene'&&g.id!==view&&s>=g.clearAt)clear(g);
+  });requestAnimationFrame(tick)}
+render();tick();
+</script>
+</body>
+</html>
